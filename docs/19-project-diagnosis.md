@@ -10,7 +10,7 @@
 
 - **P0 Git 根目录**：仓库已在正确根目录初始化并关联远程 `origin`，建立了首个正式提交。
 - **P1 依赖双轨**：移除已过期的 `requirements.txt`，依赖唯一来源统一为 `pyproject.toml`（含 `dev` / `rerank` / `docs` 可选组），并在 `CONTRIBUTING.md` 写明安装方式。
-- **P1 应用启动职责**：`build_container()` 已拆分为 `build_infrastructure()` / `build_retrieval()` / `build_container()`，且 `seed` 默认关闭（`seed: bool = False`）。
+- **P1 应用启动职责**：`build_container()` 已拆分为 `build_infrastructure()` / `build_retrieval()` / `build_container()`，且生产环境不再隐式 seed（`seed: bool | None = None`，只在 `APP_ENV` 不是 `production` 时写演示数据）。
 - **P2 模块级 docstring**：全仓库 98 处无信息量的样板 docstring 已替换为逐模块的准确描述。
 - **P2 公共接口注释**：已为 provider 协议、工具基类、`create_app`、chat 路由等核心公共接口补充 Google 风格 docstring。
 - **低优先级 CLI 拆分**：`app/cli.py` 已拆分为 `app/cli/{render,client,commands}` 包。

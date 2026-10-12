@@ -106,6 +106,21 @@ class AuditLogRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class PendingActionRow(Base):
+    """A write action proposed to the user; confirmation executes exactly this row."""
+
+    __tablename__ = "pending_actions"
+
+    action_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    tool_name: Mapped[str] = mapped_column(String(64))
+    arguments_json: Mapped[str] = mapped_column(Text)
+    risk: Mapped[str] = mapped_column(String(16))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class IdempotencyRow(Base):
     __tablename__ = "idempotency_keys"
 

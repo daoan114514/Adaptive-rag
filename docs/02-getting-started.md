@@ -95,16 +95,16 @@ curl -s localhost:8000/api/v1/chat \
 | `ORD10002` | 已签收 | 定制马克杯 |
 | `ORD10003` | 已支付未发货 | T 恤 |
 
-用户 `u_demo`。取消未发货会返回 `pending_action`：
+用户 `u_demo`，订单只对属主可见。非 `production` 环境启动时会自动写入这三个订单（已存在则跳过）。取消未发货会返回 `pending_action`：
 
 ```bash
 curl -s localhost:8000/api/v1/chat \
   -H 'content-type: application/json' \
   -d '{"message":"取消订单ORD10003","user_id":"u_demo"}'
-# 把 pending_action.action_id 填回：
+# 把返回的 session_id 和 pending_action.action_id 一起填回（必须同一用户、同一会话）：
 curl -s localhost:8000/api/v1/chat \
   -H 'content-type: application/json' \
-  -d '{"message":"确认取消","user_id":"u_demo","confirm_action_id":"act_..."}'
+  -d '{"message":"确认","user_id":"u_demo","session_id":"sess_...","confirm_action_id":"act_..."}'
 ```
 
 机制见 [05 · HITL](05-agents-and-tools.md#hitl-与幂等)。

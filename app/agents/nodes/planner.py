@@ -5,14 +5,18 @@ from __future__ import annotations
 import re
 
 from app.agents.state import AgentState
-from app.core.exceptions import LLMOutputError, LLMProviderError
+from app.core.enums import RetrievalStrategy
+from app.core.exceptions import InvalidRequestError, LLMOutputError, LLMProviderError
 from app.core.ids import new_id
+from app.core.request_scope import get_db_session
 from app.prompts.planner import PLANNER_SYSTEM, PLANNER_USER
 from app.providers.base import LLMProvider
 from app.providers.json_parser import parse_model
+from app.repositories.pending_action_repository import PendingActionRepository
 from app.schemas.agent import AgentPlan, PlanStep
 from app.schemas.chat import ActionProposal
 from app.skills.loader import match_skill
+from app.tools.base import Tool
 from app.tools.permissions import WRITE_RISKS
 from app.tools.registry import ToolRegistry
 
@@ -104,18 +108,32 @@ def skill_to_plan(skill: dict, query: str, registry: ToolRegistry) -> AgentPlan:
     for index, tool_name in enumerate(skill.get("tools", []), start=1):
         if tool_name not in registry.names():
             continue
+        arguments = _tool_arguments(tool_name, query)
+        tool = registry.get(tool_name)
+        if tool.risk in WRITE_RISKS and not _arguments_valid(tool, arguments):
+            # The rule fallback cannot invent a refund reason or a missing order id;
+            # proposing the write anyway would only produce a confirmation that fails.
+            continue
         steps.append(
             PlanStep(
                 step_id=index,
                 goal=skill["name"],
                 tool_name=tool_name,
-                arguments=_tool_arguments(tool_name, query),
+                arguments=arguments,
                 needs_retrieval=tool_name == "search_knowledge",
             )
         )
     if steps:
         return AgentPlan(steps=steps, rationale=f"skill:{skill['name']}")
     return _knowledge_fallback(query, registry)
+
+
+def _arguments_valid(tool: Tool, arguments: dict) -> bool:
+    try:
+        tool.parse(arguments)
+    except InvalidRequestError:
+        return False
+    return True
 
 
 def _tool_arguments(tool_name: str, query: str) -> dict:
@@ -150,6 +168,21 @@ def _knowledge_fallback(query: str, registry: ToolRegistry) -> AgentPlan:
 
 
 async def planner_node(state: AgentState, planner: Planner) -> dict:
+    confirmed = state.get("confirmed_action")
+    if confirmed is not None:
+        plan = AgentPlan(
+            steps=[
+                PlanStep(
+                    step_id=1,
+                    goal="confirmed_action",
+                    tool_name=confirmed.tool_name,
+                    arguments=confirmed.arguments,
+                )
+            ],
+            rationale=f"confirmed:{confirmed.action_id}",
+        )
+        return {"plan": plan, "pending_action": None, "strategy": RetrievalStrategy.AGENT}
+
     intent = state.get("intent")
     plan = await planner.create_plan(
         state["user_query"],
@@ -161,13 +194,16 @@ async def planner_node(state: AgentState, planner: Planner) -> dict:
         if not step.tool_name:
             continue
         tool = planner._registry.get(step.tool_name)
-        if tool.risk in WRITE_RISKS and not state.get("confirm_action_id"):
+        if tool.risk in WRITE_RISKS:
             pending = ActionProposal(
                 action_id=new_id("act_"),
                 tool_name=tool.name,
                 arguments=step.arguments,
                 risk=tool.risk,
                 summary=f"即将执行 {tool.name}，需要你确认后才会真正提交。",
+            )
+            await PendingActionRepository(get_db_session()).save(
+                pending, user_id=state["user_id"], session_id=state["session_id"]
             )
             break
     return {"plan": plan, "pending_action": pending}

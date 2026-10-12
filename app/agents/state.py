@@ -32,6 +32,9 @@ class AgentState(TypedDict, total=False):
     tool_results: list[ToolResult]
     pending_action: ActionProposal | None
     confirm_action_id: str | None
+    # Set only after ChatService has matched confirm_action_id to a stored proposal
+    # for this user and session; the executor runs exactly this action.
+    confirmed_action: ActionProposal | None
     idempotency_key: str | None
     final_answer: str | None
     citations: list[Citation]

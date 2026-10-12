@@ -301,7 +301,7 @@ FastAPI 适合提供异步 HTTP 和 SSE；Pydantic schema 把外部输入转换�
 ```python
 engine, sessions, redis = await build_infrastructure(settings)
 retriever, reranker, store = await build_retrieval(settings, redis)
-container = await build_container(settings, seed=False)
+container = await build_container(settings)  # seed=None：非 production 才写演示数据
 ```
 
 `build_infrastructure` 只创建数据库和 Redis；`build_retrieval` 只负责知识库 ingest、BM25、向量检索和 reranker；`build_container` 负责把它们组装成聊天服务。
@@ -484,7 +484,7 @@ LangGraph 提供条件边和状态持久化语义；如果流程永远是线性�
 
 1. 项目内容已提升到 Git 根目录，避免嵌套仓库和 CI 根目录错误。
 2. `app/services/container.py` 拆出 `build_infrastructure`、`build_retrieval`，降低组合根复杂度。
-3. `build_container` 默认不写入演示数据，生产启动不再隐式 seed；需要演示数据时显式传入 `seed=True`。
+3. 生产启动不再隐式 seed：`build_container` 的 `seed` 默认为 `None`，只在 `APP_ENV` 不是 `production` 时写入演示数据（幂等），也可以显式传 `True` / `False` 覆盖。
 
 推荐开发循环：
 

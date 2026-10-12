@@ -27,19 +27,24 @@
 | **确认** | 用户 / 客户端 | `confirm_action_id` |
 | **执行** | 执行器 | 写工具运行 |
 
-第一步是**提案**。当规划器发现计划里含有写入或破坏性工具，且当前请求没有确认标识时，它不执行，而是生成一个 `ActionProposal`。`app/agents/nodes/planner.py` 中的 `planner_node` 会构造这个提案，它包含动作标识 `action_id`、工具名 `tool_name`、参数 `arguments`、风险等级 `risk` 与一句说明 `summary`。
+第一步是**提案**。当规划器发现计划里含有写入或破坏性工具时，它不执行，而是生成一个 `ActionProposal`。`app/agents/nodes/planner.py` 中的 `planner_node` 会构造这个提案，它包含动作标识 `action_id`、工具名 `tool_name`、参数 `arguments`、风险等级 `risk` 与一句说明 `summary`，并把它存进 `pending_actions` 表，同时记下发起它的用户和会话。
 
 第二步是**返回**。系统把提案放进状态的 `pending_action` 字段。`generate_node` 在发现有待确认动作时，直接把提案的说明作为答案返回，例如"即将执行 cancel_order，需要你确认后才会真正提交"。用户此时看到的不是"已完成"，而是"待确认"。
 
-第三步是**确认**。用户同意后，客户端在下一轮请求里带上 `confirm_action_id`，它的值就是提案的动作标识。
+第三步是**确认**。用户同意后，客户端在同一会话的下一轮请求里带上 `confirm_action_id`，它的值就是提案的动作标识。`ChatService` 拿这个标识去 `pending_actions` 表里查：查不到，或者它不属于当前用户和会话，请求直接以 400 结束。
 
-第四步是**执行**。执行器看到请求里带了确认标识，才允许写工具运行。
+第四步是**执行**。核验通过后，这一轮不再做意图识别和重新规划，而是把表里存的那一步原样交给执行器。执行器只在工具名和参数都与存档一致时才放行写工具。
 
 `app/agents/nodes/executor.py` —— `executor_node` 的写操作分支
 
 ```python
         tool = registry.get(step.tool_name)
-        confirmed = bool(state.get("confirm_action_id"))
+        # Approval covers one stored action, not every write the plan happens to contain.
+        confirmed = (
+            approved is not None
+            and approved.tool_name == tool.name
+            and approved.arguments == step.arguments
+        )
         try:
             if tool.risk in WRITE_RISKS:
                 assert_permitted(tool, confirmed=confirmed)
@@ -64,7 +69,9 @@
                     continue
 ```
 
-`executor_node` 先取出工具，再用 `state.get("confirm_action_id")` 计算 `confirmed` 布尔值。当工具属于 `WRITE_RISKS` 时，它调用 `assert_permitted` 校验确认标识；没有确认标识就会在这里抛出 `ToolPermissionError`，写操作不会执行。通过校验后，它才继续走幂等查询与真正执行的分支。
+`executor_node` 先取出工具，再拿服务端核验过的 `approved`（即状态里的 `confirmed_action`）与当前步骤比对，算出 `confirmed` 布尔值。当工具属于 `WRITE_RISKS` 时，它调用 `assert_permitted` 校验；没有经过核验的确认，或者确认的不是这一步，就会在这里抛出 `ToolPermissionError`，写操作不会执行。通过校验后，它才继续走幂等查询与真正执行的分支。
+
+> 注意 `confirmed` 不能简单写成"请求里带没带 `confirm_action_id`"。那样客户端随手编一个标识就能跳过确认，而且确认那一轮如果重新规划，执行的也未必是用户刚才看到的那个操作。
 
 > 这四步把"模型想退"和"用户同意退"分成了两件事，任何一步缺失，写操作都不会发生。
 
@@ -84,7 +91,7 @@
 
 原因在于，提示词是模型输入的一部分，模型可以被诱导忽略它。如果系统只在提示词里写一句"退款需要用户确认"，那么一次成功的注入就能让模型跳过这句话，直接执行退款。
 
-> 而 `assert_permitted` 是纯代码，它不看模型怎么说，只看请求里有没有确认标识。模型无法绕过它，因为它根本不经过模型。
+> 而 `assert_permitted` 是纯代码，它不看模型怎么说，只看这一步有没有经过服务端核验的确认。模型无法绕过它，因为它根本不经过模型。
 
 ### 3.3 越权查询的同一原则
 

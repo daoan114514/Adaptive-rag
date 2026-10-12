@@ -215,9 +215,9 @@ pytest 在 `conftest.py` 清空真实 API key，CI **不打真实 LLM**。整图
 - 问候、闲聊：Direct，无工具。
 - 政策：检索 + 生成，无副作用。
 - 查单、物流：Agent 但工具是 `read`，可直接跑。
-- `create_refund_request` / `create_return_request` / `cancel_order`：`write` 或 `destructive`。Planner 发现计划里有这类工具且 state 没有 `confirm_action_id`，立刻生成 `ActionProposal`（`act_` 前缀），**本轮不执行写**。执行器见 `pending_action` 且未确认，直接 `tool_results=[]`。生成节点看到 pending 就返回「即将执行 xxx，需要你确认」，不调 LLM。
+- `create_refund_request` / `create_return_request` / `cancel_order`：`write` 或 `destructive`。Planner 发现计划里有这类工具，立刻生成 `ActionProposal`（`act_` 前缀）并写入 `pending_actions` 表（绑定 `user_id` + `session_id`），**本轮不执行写**。执行器见 `pending_action`，直接 `tool_results=[]`。生成节点看到 pending 就返回「即将执行 xxx，需要你确认」，不调 LLM。
 
-前端再带 `confirm_action_id` 进来，执行器才 `assert_permitted(..., confirmed=True)` 并走幂等。
+前端在同一会话里带 `confirm_action_id` 进来：`ChatService` 先查表核验，不存在或不属于本人本会话就返回 400；核验通过后跳过意图识别和重新规划，只把存下来的那一步交给执行器，执行器确认工具名和参数一致才 `assert_permitted(..., confirmed=True)` 并走幂等。
 
 **别吹：** 「LLM 自主决策调用工具」不等于「模型说退就退」。自主的是 **规划**，执行写操作仍要人点头。
 
@@ -273,7 +273,7 @@ pytest 在 `conftest.py` 清空真实 API key，CI **不打真实 LLM**。整图
 
 分解发生在 `Planner.create_plan`（`app/agents/nodes/planner.py`）：
 
-1. `match_skill(query, intent)`：先扫 Skill JSON 的 `triggers`（如「退货」「7天无理由」），再按意图映射（`refund`/`return_exchange` → `return_handling`）。
+1. `match_skill(query, intent)`：先扫 Skill JSON 的 `triggers`（如「退货」「7天无理由」），再按意图映射（`return_exchange` → `return_handling`，`refund` → `refund_handling`，`cancel_order` → `order_cancel`）。
 2. 命中则 `_allowed_tools` = Skill 的 `tools` ∪ `{search_knowledge, escalate_to_human}`。Prompt 里 **只展示这些**。
 3. DeepSeek `temperature=0`，`response_format=json_object`，`max_tokens=512`。
 4. `parse_model(..., AgentPlan)` 后 `_sanitize_plan`：工具名必须在 `registry ∩ allowed`，否则丢掉该步；`steps = steps[:6]`。
@@ -339,11 +339,12 @@ LLM 挂 / 解析失败 / steps 空
 
 时序：
 
-1. Planner 扫 steps，遇到写工具且没有 `confirm_action_id` → 生成 `ActionProposal`，**break**（只提案第一个写操作）。
-2. Executor：`if pending_action and not confirm_action_id: return {tool_results: []}`。
+1. Planner 扫 steps，遇到写工具 → 生成 `ActionProposal` 并落库到 `pending_actions`（绑定用户和会话），**break**（只提案第一个写操作）。
+2. Executor：`if pending_action: return {tool_results: []}`。
 3. Generate：有 pending 则直接把 `summary`（「即将执行 xxx，需要你确认」）当答案，不调 LLM。
 4. Faithfulness：pending 时跳过。
-5. 客户端下一轮带 `confirm_action_id`。
+5. 客户端下一轮在同一会话里带 `confirm_action_id`。`ChatService` 查表核验，失败返回 400；成功则把提案放进 `confirmed_action`。
+6. 图在护栏之后看到 `confirmed_action`，跳过意图和路由直接进 `plan_tasks`；Planner 不调 LLM，只把存档那一步变成计划；Executor 仅当工具名和参数都与存档一致才放行。
 
 幂等：写工具用 `confirmed_action_id or idempotency_key` 当键，指纹 `sha256(json({tool, arguments}))`。
 
@@ -362,7 +363,7 @@ LLM 挂 / 解析失败 / steps 空
 
 **详细答案：**
 
-`app/skills/definitions/`：`return_handling`、`order_tracking`、`product_recommend`。`match_skill` 先 trigger 短语，再 `INTENT_TO_SKILL`。
+`app/skills/definitions/`：`return_handling`、`refund_handling`、`order_cancel`、`order_tracking`、`product_recommend`。`match_skill` 先 trigger 短语，再 `INTENT_TO_SKILL`。
 
 例如退货 Skill 只暴露：`get_order`、`get_order_items`、`search_knowledge`、`create_return_request`，外加永远可调用的 `escalate_to_human`。
 

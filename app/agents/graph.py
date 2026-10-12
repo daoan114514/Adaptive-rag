@@ -81,13 +81,24 @@ def build_graph(
     graph.add_node("compact_memory", partial(memory_node, settings=settings, summarizer=summarizer))
 
     def _after_guardrail(state: AgentState) -> str:
-        return "refuse_answer" if state.get("refused") else "classify_intent"
+        if state.get("refused"):
+            return "refuse_answer"
+        # A confirmation turn carries no new intent (the CLI sends just "确认");
+        # re-classifying or re-planning it would execute something other than
+        # what the user approved, so go straight to the stored action.
+        if state.get("confirmed_action"):
+            return "plan_tasks"
+        return "classify_intent"
 
     graph.add_edge(START, "apply_guardrail")
     graph.add_conditional_edges(
         "apply_guardrail",
         _after_guardrail,
-        {"refuse_answer": "refuse_answer", "classify_intent": "classify_intent"},
+        {
+            "refuse_answer": "refuse_answer",
+            "classify_intent": "classify_intent",
+            "plan_tasks": "plan_tasks",
+        },
     )
     graph.add_edge("classify_intent", "route_complexity")
     graph.add_conditional_edges(

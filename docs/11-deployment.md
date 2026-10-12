@@ -57,7 +57,8 @@ api:
 - [ ] 真实 embedding 网关（否则对外以 BM25 为准）
 - [ ] `pip install -e ".[rerank]"` 后重跑 retrieval，报告含 `hybrid+cross-encoder`
 - [ ] `pip install -e ".[docs]"` 后用真实 PDF/扫描件验证 ingest；换切分后重跑 `--task retrieval`
-- [ ] `u_demo` / `anonymous` 读全库订单已关闭或隔离
+- [ ] `user_id` 来自认证后的身份，而不是请求体自报（订单只按属主可见，但属主身份仍需上游保证）
+- [ ] 生产库里没有演示订单（`APP_ENV=production` 时启动不会自动 seed）
 - [ ] liveness / readiness 分开（见 [08](08-reliability.md#探活)）
 - [ ] 密钥不在日志、镜像、README
 - [ ] 长期 Postgres 用 Alembic（现在启动仍 `create_all`）

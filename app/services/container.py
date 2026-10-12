@@ -91,8 +91,17 @@ async def build_retrieval(settings: Settings, redis):
     return retriever, reranker, store
 
 
-async def build_container(settings: Settings, seed: bool = False) -> AppContainer:
-    """Compose runtime services from independently testable infrastructure builders."""
+async def build_container(settings: Settings, seed: bool | None = None) -> AppContainer:
+    """Compose runtime services from independently testable infrastructure builders.
+
+    Args:
+        settings: Runtime configuration.
+        seed: Insert the demo orders and products. ``None`` seeds everywhere except
+            production, so the README's ORD10001-ORD10003 exist after a local start.
+            Seeding is idempotent.
+    """
+    if seed is None:
+        seed = settings.app_env != "production"
     llm: LLMProvider = DeepSeekProvider(settings) if settings.llm_configured else FakeLLMProvider()
     engine, session_factory, redis = await build_infrastructure(settings)
     rate_limiter = (

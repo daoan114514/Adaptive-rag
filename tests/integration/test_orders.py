@@ -54,6 +54,18 @@ async def test_order_is_scoped_to_owner(session_factory) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("user_id", ["anonymous", "someone_else"])
+async def test_write_tool_cannot_touch_another_users_order(session_factory, user_id) -> None:
+    # anonymous is the API default user_id; it must not bypass the ownership check.
+    async with request_session(session_factory) as session:
+        tool = CreateRefundRequestTool(OrderRepository(session))
+        ctx = ToolContext(user_id=user_id, session_id="s", trace_id="t")
+        with pytest.raises(Exception, match="order not found"):
+            await tool.run({"order_id": "ORD10003", "reason": "不想要了"}, ctx)
+        assert await OrderRepository(session).get_refunds("ORD10003") == []
+
+
+@pytest.mark.asyncio
 async def test_refund_tool_persists_via_repository(session_factory) -> None:
     async with request_session(session_factory) as session:
         tool = CreateRefundRequestTool(OrderRepository(session))

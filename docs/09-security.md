@@ -82,7 +82,9 @@ async def run(self, arguments, context) -> ToolResult:
     return await self.execute(parsed, context)
 ```
 
-订单对非属主统一「不存在」，避免用对错探测别人的单号。演示账号 `u_demo` / `anonymous` 可读写种子单，**生产应关掉**。
+订单对非属主统一「不存在」，避免用对错探测别人的单号。没有任何 `user_id` 享有豁免：`anonymous` 是 API 的默认用户，写工具也靠这一处做归属校验，一旦豁免，任何人都能对任意订单退款、取消。种子订单属于 `u_demo`，演示时用它即可。
+
+`user_id` 仍由客户端自报，仓库没有做身份认证，这一点见[限制](12-limitations.md)。
 
 `order_id` 正则 `^[A-Za-z0-9_-]+$`。SQL 绑定参数；`ILIKE` 转义 `%` `_`。
 

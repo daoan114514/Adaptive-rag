@@ -54,8 +54,8 @@
 
 - **八股：** 高风险动作先问人再执行。
 - **本仓库：**
-  `Planner` 扫计划：若某步工具 `risk in {WRITE, DESTRUCTIVE}` 且 state 里还没有 `confirm_action_id`，立刻生成 `ActionProposal`（`act_` 前缀），放进 `pending_action`，**本轮不执行写工具**。前端确认后再带 `confirm_action_id` 进来。  
-  `executor_node`：若 `pending_action` 存在且未确认，直接返回空 `tool_results`。真要写时 `assert_permitted`；用 `confirmed_action_id` 或 `idempotency_key` 做 SHA256 指纹，命中则返回上次 output（`status=idempotent`），避免「超时重试退两次」。  
+  `Planner` 扫计划：若某步工具 `risk in {WRITE, DESTRUCTIVE}`，立刻生成 `ActionProposal`（`act_` 前缀），放进 `pending_action` 并写入 `pending_actions` 表（绑定 `user_id` + `session_id`），**本轮不执行写工具**。前端在同一会话里带 `confirm_action_id` 进来，`ChatService` 查表核验，查不到或不属于本人本会话就返回 400。  
+  核验通过的确认轮次跳过意图识别和重新规划，直接把存下来的那一步交给 `executor_node`；执行器只在工具名和参数都与存档一致时 `assert_permitted(confirmed=True)`，再用 `action_id` 或 `idempotency_key` 做 SHA256 指纹，命中则返回上次 output（`status=idempotent`），避免「超时重试退两次」。  
   读失败可以走 `READ_FALLBACKS`（如 `get_order` → `search_knowledge`）；**`ToolPermissionError` 会 re-raise，不进这张表**。
 - **开口：** 「读工具可以换下一个；写工具和权限拒绝不走 Fallback，防止未确认退款被换工具跑掉。」
 
@@ -79,7 +79,7 @@
 - **八股：** 先出完整计划再执行。
 - **本仓库：**
   `planner_node` 调 `Planner.create_plan(query, intent, summary)`：
-  1. `match_skill`：先扫描 Skill JSON 的 `triggers` 短语，再按意图映射（退货/退款→`return_handling`，物流/查单/取消→`order_tracking`，推荐/咨询→`product_recommend`）。
+  1. `match_skill`：先扫描 Skill JSON 的 `triggers` 短语，再按意图映射（退货→`return_handling`，退款→`refund_handling`，取消→`order_cancel`，物流/查单→`order_tracking`，推荐/咨询→`product_recommend`）。
   2. 命中则 `_allowed_tools` = 该 Skill 的 `tools` ∪ `{search_knowledge, escalate_to_human}`，Planner prompt 里 **只展示这些**。
   3. LLM 出 JSON → `parse_model(..., AgentPlan)` → `_sanitize_plan`（工具名必须在 allowed，最多 6 步）。
   4. LLM 挂或 steps 空：有 Skill 则 `skill_to_plan`（从 query 抽 `ORD\d+` 填 `get_order` 等参数）；再不行 `_knowledge_fallback` 只调 `search_knowledge`。

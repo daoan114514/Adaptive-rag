@@ -1,0 +1,12 @@
+{
+  "name": "refund_handling",
+  "description": "退款进度查询与仅退款申请",
+  "triggers": ["申请退款", "退款进度"],
+  "steps": [
+    "确认订单号",
+    "查询已有退款单",
+    "检索退款政策",
+    "如需新提交仅退款则创建待确认写操作"
+  ],
+  "tools": ["get_order", "get_refund_status", "search_knowledge", "create_refund_request"]
+}

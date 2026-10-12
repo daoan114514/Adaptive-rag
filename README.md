@@ -9,8 +9,8 @@
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white">
   <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-0.2-6E4AFF">
   <img alt="Pydantic" src="https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white">
-  <img alt="pytest" src="https://img.shields.io/badge/pytest-154_passed-0A9EDC?logo=pytest&logoColor=white">
-  <img alt="coverage" src="https://img.shields.io/badge/coverage-73%25-2EA043">
+  <img alt="pytest" src="https://img.shields.io/badge/pytest-167_passed-0A9EDC?logo=pytest&logoColor=white">
+  <img alt="coverage" src="https://img.shields.io/badge/coverage-76%25-2EA043">
   <img alt="mypy" src="https://img.shields.io/badge/mypy-clean-2A6DB2">
   <img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white">
   <img alt="Retrieval Precision@1" src="https://img.shields.io/badge/Retrieval_P%401-89.2%25-2EA043">
@@ -154,7 +154,7 @@ python -m app.cli
 | `ORD10002` | 已签收 | 定制马克杯 |
 | `ORD10003` | 已支付未发货 | T 恤 |
 
-尝试取消 `ORD10003` 时不会直接写库，而是返回 `pending_action` 与一个 `confirm_action_id`，把该 id 填回请求后才会真正执行。这就是 HITL（Human-in-the-Loop）人工确认机制，完整流程见[智能体与工具](docs/05-agents-and-tools.md)。
+这三个订单属于 `u_demo`，非 `production` 环境启动时会自动写入。尝试取消 `ORD10003` 时不会直接写库，而是返回 `pending_action`；在同一会话里把它的 `action_id` 作为 `confirm_action_id` 填回请求后，服务端核验这确实是发给你的那个提案，才会执行存下来的那一个操作。这就是 HITL（Human-in-the-Loop）人工确认机制，完整流程见[智能体与工具](docs/05-agents-and-tools.md)。
 
 ```bash
 pytest -q
@@ -176,9 +176,9 @@ python -m eval.runner --task retrieval
 | 生成忠实度 | 65 条 | 无检索 80% → RAG 96.9% → RAG + 自纠错 **100%** |
 | 生成幻觉率 | 65 条 | 无检索 20% → RAG 3.1% → RAG + 自纠错 **0%** |
 | 端到端 | 16 条 | 拒答 100% · 工具路径 100% · 关键词 9/11 · P50 4.9s / P95 5.8s |
-| 回归测试 | 154 项 | `pytest -q` **154 passed**，覆盖率 **73%**（2026-10-10 复测） |
+| 回归测试 | 167 项 | `pytest -q` **167 passed**，覆盖率 **76%**（2026-10-12 复测） |
 
-有五个口径容易被误读，这里主动说明。意图的 100% 含一层规则覆盖，不是纯 LLM 分类器的成绩；本集上 RRF 与仅用 bge-small 的数字相同，**增益实际来自 Cross-Encoder 而非融合**，所以不宣称 RRF 必然优于单路；端到端关键词命中是 9/11 而不是 100%；幻觉评测使用同模型裁判，结论偏乐观；回归测试那一行是 2026-10-10 单独复测的，与上面 2026-08-22 的评测指标不是同一次运行，当天下午补了 `eval` 指标与检索核心路径的单测后由 75 增至 154。
+有五个口径容易被误读，这里主动说明。意图的 100% 含一层规则覆盖，不是纯 LLM 分类器的成绩；本集上 RRF 与仅用 bge-small 的数字相同，**增益实际来自 Cross-Encoder 而非融合**，所以不宣称 RRF 必然优于单路；端到端关键词命中是 9/11 而不是 100%；幻觉评测使用同模型裁判，结论偏乐观；回归测试那一行是单独复测的，与上面 2026-08-22 的评测指标不是同一次运行：2026-10-10 补了 `eval` 指标与检索核心路径的单测后由 75 增至 154，2026-10-12 补了 HITL 确认流程与订单归属的测试后增至 167。
 
 ## 文档
 

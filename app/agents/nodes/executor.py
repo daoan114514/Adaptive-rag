@@ -101,16 +101,17 @@ async def executor_node(
     plan = state.get("plan")
     if plan is None:
         return {"tool_results": []}
-    if state.get("pending_action") and not state.get("confirm_action_id"):
+    if state.get("pending_action"):
         return {"tool_results": []}
 
     started = time.perf_counter()
     results: list[ToolResult] = []
+    approved = state.get("confirmed_action")
     context = ToolContext(
         user_id=state["user_id"],
         session_id=state["session_id"],
         trace_id=state["trace_id"],
-        confirmed_action_id=state.get("confirm_action_id"),
+        confirmed_action_id=approved.action_id if approved else None,
         idempotency_key=state.get("idempotency_key"),
     )
     idempotency = IdempotencyRepository(get_db_session())
@@ -125,7 +126,12 @@ async def executor_node(
         if not step.tool_name:
             continue
         tool = registry.get(step.tool_name)
-        confirmed = bool(state.get("confirm_action_id"))
+        # Approval covers one stored action, not every write the plan happens to contain.
+        confirmed = (
+            approved is not None
+            and approved.tool_name == tool.name
+            and approved.arguments == step.arguments
+        )
         try:
             if tool.risk in WRITE_RISKS:
                 assert_permitted(tool, confirmed=confirmed)

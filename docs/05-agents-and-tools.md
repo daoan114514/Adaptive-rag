@@ -62,8 +62,8 @@ def _maybe_overlay(self, query, parsed):
 
 ### 要点
 
-三个 JSON：`return_handling`、`order_tracking`、`product_recommend`。  
-先匹配 trigger 短语，再按意图映射。命中后规划器 **只展示该 Skill 的工具** + `search_knowledge` + `escalate_to_human`。
+五个 JSON：`return_handling`、`refund_handling`、`order_cancel`、`order_tracking`、`product_recommend`。  
+先匹配 trigger 短语，再按意图映射。命中后规划器 **只展示该 Skill 的工具** + `search_knowledge` + `escalate_to_human`，计划里白名单外的步骤会被直接删掉。所以每个写工具都必须挂在某个 Skill 上，否则它永远不会被提议。
 
 ### 代码摘要
 
@@ -71,9 +71,10 @@ def _maybe_overlay(self, query, parsed):
 # app/skills/loader.py
 INTENT_TO_SKILL = {
     "return_exchange": "return_handling",
-    "refund": "return_handling",
+    "refund": "refund_handling",
     "logistics": "order_tracking",
     "order_inquiry": "order_tracking",
+    "cancel_order": "order_cancel",
     "recommendation": "product_recommend",
     ...
 }
@@ -191,8 +192,9 @@ Registry 进程级；DB 经 `get_db_session()` 懒解析。工厂：`app/tools/f
 
 ### 要点
 
-`write` / `destructive` 无 `confirm_action_id` → `ToolPermissionError`。  
-Planner 先返回 `pending_action`；客户端再带 `confirm_action_id`。  
+`write` / `destructive` 没有经过核验的确认 → `ToolPermissionError`。  
+Planner 返回 `pending_action`，同时把它写进 `pending_actions` 表，绑定 `user_id` 和 `session_id`。  
+客户端在**同一会话**里带 `confirm_action_id` 回来时，`ChatService` 先查表：ID 不存在、或不属于这个用户和会话，直接返回 400 `INVALID_REQUEST`。核验通过后，确认轮次跳过意图识别和重新规划，**只执行表里存的那一个操作**（工具名与参数都要一致）。  
 同一 `action_id`/`idempotency_key` + 参数指纹：第二次返回首次结果。指纹不同 → `IDEMPOTENCY_CONFLICT`。
 
 ### 代码摘要
@@ -209,8 +211,8 @@ def assert_permitted(tool: Tool, *, confirmed: bool) -> None:
 ```
 
 ```python
-# app/agents/nodes/planner.py  （生成待确认）
-if tool.risk in WRITE_RISKS and not state.get("confirm_action_id"):
+# app/agents/nodes/planner.py  （生成待确认并落库）
+if tool.risk in WRITE_RISKS:
     pending = ActionProposal(
         action_id=new_id("act_"),
         tool_name=tool.name,
@@ -218,6 +220,18 @@ if tool.risk in WRITE_RISKS and not state.get("confirm_action_id"):
         risk=tool.risk,
         summary=f"即将执行 {tool.name}，需要你确认后才会真正提交。",
     )
+    await PendingActionRepository(get_db_session()).save(
+        pending, user_id=state["user_id"], session_id=state["session_id"]
+    )
+```
+
+```python
+# app/agents/nodes/executor.py  （确认只放行存下来的那一步）
+confirmed = (
+    approved is not None
+    and approved.tool_name == tool.name
+    and approved.arguments == step.arguments
+)
 ```
 
 执行器对写工具：`IdempotencyRepository.get_if_matches(key, sha256(tool+args))`。
@@ -225,6 +239,8 @@ if tool.risk in WRITE_RISKS and not state.get("confirm_action_id"):
 ### 为什么
 
 LLM 超时重试如果没有幂等，会生成两笔退款。HITL 把「模型想退」和「用户同意退」拆开，面试必问。
+
+确认必须由服务端核验，而不是「请求里带了 ID 就算确认」：否则客户端随手编一个 ID 就能跳过确认，确认轮次重新规划出来的也未必是用户刚才看到的那个操作。CLI 确认时只发「确认」两个字，所以确认轮次也不能再走意图识别，否则会被当成闲聊、什么都不执行。
 
 ## 忠实度自纠错
 

@@ -13,13 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agents.graph import build_graph
 from app.agents.state import AgentState
 from app.config.settings import Settings
-from app.core.exceptions import AppError, GuardrailError, RateLimitError
+from app.core.exceptions import AppError, GuardrailError, InvalidRequestError, RateLimitError
 from app.core.ids import new_id
 from app.core.request_scope import request_session
 from app.core.streaming import reset_token_sink, set_token_sink
 from app.infra.rate_limit import RateLimiter
 from app.observability.metrics import REQUEST_LATENCY, REQUESTS, ROUTING, STAGE_LATENCY, TOKEN_USAGE
 from app.providers.base import LLMProvider
+from app.repositories.pending_action_repository import PendingActionRepository
 from app.repositories.session_repository import SessionRepository
 from app.retrieval.hybrid import HybridRetriever
 from app.retrieval.reranker import DocumentReranker
@@ -159,6 +160,15 @@ class ChatService:
         sessions = SessionRepository(db)
         await sessions.get_or_create(session_id, request.user_id)
         history = await sessions.recent_messages(session_id)
+        confirmed_action = None
+        if request.confirm_action_id:
+            confirmed_action = await PendingActionRepository(db).get_owned(
+                request.confirm_action_id, user_id=request.user_id, session_id=session_id
+            )
+            if confirmed_action is None:
+                raise InvalidRequestError(
+                    "confirm_action_id does not match a pending action in this session"
+                )
         return {
             "trace_id": trace_id,
             "session_id": session_id,
@@ -174,6 +184,7 @@ class ChatService:
             "token_usage": TokenUsage(),
             "latency": LatencyBreakdown(),
             "confirm_action_id": request.confirm_action_id,
+            "confirmed_action": confirmed_action,
             "idempotency_key": request.idempotency_key,
         }
 

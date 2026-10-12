@@ -35,12 +35,15 @@ class OrderRepository:
         return _to_order(row)
 
     async def get_visible_order(self, order_id: str, user_id: str) -> Order:
-        """Hide other users' orders as not-found. Demo users may read seed data."""
+        """Hide other users' orders as not-found.
+
+        No user id is exempt: write tools call this as their ownership check, and
+        ``anonymous`` is the API default, so an exemption would let any caller act
+        on any order. Seed orders belong to ``u_demo``, which still sees them.
+        """
         order = await self.get_order(order_id)
         if order is None:
             raise InvalidRequestError(f"order not found: {order_id}")
-        if user_id in {"anonymous", "u_demo"}:
-            return order
         if order.user_id != user_id:
             raise InvalidRequestError(f"order not found: {order_id}")
         return order

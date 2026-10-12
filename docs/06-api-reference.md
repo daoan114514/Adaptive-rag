@@ -27,11 +27,13 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     user_id: str = Field(default="anonymous", min_length=1, max_length=64)
     session_id: str | None = None
-    confirm_action_id: str | None = None
+    confirm_action_id: str | None = Field(default=None, max_length=64)
     idempotency_key: str | None = Field(default=None, max_length=128)
 ```
 
 `stream` 字段在 `ChatRequest` 上存在，但 **`POST /chat` 忽略它**；流式必须打 `/chat/stream`。
+
+`confirm_action_id` 必须是服务端在**同一用户、同一会话**里下发过的 `pending_action.action_id`，所以确认请求要带上首轮返回的 `session_id`。对不上 → **400** `INVALID_REQUEST`，什么都不执行。核验通过后，这一轮只执行存下来的那一个操作，`message` 内容不再参与意图识别或规划；重复提交同一个 ID 返回首次执行的结果。
 
 ## 探活
 

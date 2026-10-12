@@ -1,0 +1,7 @@
+{
+  "name": "order_cancel",
+  "description": "取消未发货订单",
+  "triggers": ["取消订单"],
+  "steps": ["确认订单号", "查询订单是否已发货", "未发货则创建待确认的取消操作"],
+  "tools": ["get_order", "cancel_order"]
+}
